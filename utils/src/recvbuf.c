@@ -27,7 +27,7 @@ int recvuntil(char delim, char **ptr, SOCKET sock) {
      *          size = BASE_LEN
      *
      *      while True:
-     *          if delim in buf:
+     *          if delim in buf[0:end]:
      *              pos = index of delim
      *              allocate 'return buffer', copy first `pos` bytes
      *              pop first `pos` bytes from buffer, shift remaining data

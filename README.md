@@ -131,10 +131,11 @@ Here is pseudocode for recvuntil(). Function recvlen() has similar algorithm.
           size = BASE_LEN
 
       while True:
-          if end >= len:   (i.e. buffer has enough data)
-              allocate 'return buffer', copy first `len` bytes
-              pop first `len` bytes from buffer, shift remaining data
-              shrink buffer, decrease size
+          if delim in buf[0:end]:
+              pos = index of delim
+              allocate 'return buffer', copy first `pos` bytes
+              pop first `pos` bytes from buffer, shift remaining data
+              shrink buffer (if needed), decrease size
               ptr = 'return buffer'
               return len
           else:
