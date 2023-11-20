@@ -14,7 +14,8 @@ Run `server`:
 * `server.exe [port]` 
 * `server.exe [host] [port]`
 
-Default is `127.0.0.1:5000`. Server writes logs to _stderr_, which can be piped to file.
+Default is `127.0.0.1:5000` \
+Server writes logs to _stderr_, which can be piped to file: `server.exe 2> server.log`
 
 Run `client`:
 * `client.exe`
@@ -63,9 +64,9 @@ List of server controllers:
   - Receive client data in loop
   - Call `parseMessageFromClient()` to form a _Message_ from raw buffer
   - Process message based on message type:
-    * _Sync_: send new messages (if any) to client
+    * _Sync_: for each new message (if any) call `sendMessageToClient()`, separate sent messages by `\0`, end with `\0\0`
     * _Download_: find file in _Message History_, call `sendFileToClient()` 
-    * _File_, _Message_: add data to _Message History_
+    * _File_, _Message_: add record to _Message History_
 
 ## Client architecture
 
@@ -81,7 +82,6 @@ List of client routines and services:
   - Create event for client stop
   - Create threads for services:
     * `syncService()`
-    * `recvService()`
     * `sendService()`
   - Wait for event
   - Close socket
@@ -89,17 +89,12 @@ List of client routines and services:
 
 
 * `syncService()`
-  - Send `/sync <last_msg_id>` command in loop
+  - Send `/sync <last_msg_id>` command in loop (uses lock for _send()_)
+  - Receive until `\0`, print message (uses lock for _recv()_)
+  - Update `last_msg_id` based on last incoming message id
+  - Stop receiving on `\0\0` (message is empty)
   - Sleep for polling delay
-  - Uses lock for _send()_
-
-
-* `recvService()`
-  - Receive until `\0` in loop
-  - Print each message in terminal
-  - Update `last_msg_id` based on incoming message id
-  - Uses lock for _recv()_
-
+  
 
 * `sendService()`
   - Process user input in loop
@@ -192,6 +187,6 @@ buf  ========-------------------------
 
 ## Improvements
 
-This lab uses `recvuntil('\0')` for messages and commands, which means data is received dynamically. Though it works fine, it's not the best approach, as we don't know message length beforehand, and message type is parsed from `/commands`.
+This lab uses `recvuntil('\0')` for messages and commands, which means data is received dynamically. Though it works fine, it's not the best approach, as we don't know message length beforehand, and message type is parsed from `/`-like commands.
 
-Better **implement your own _TV / TLV_ protocol** for messages (use tags from `Message` struct) and receive values with `recvlen()`.
+Better **implement your own _TV / TLV_ protocol** for messages (use some tags from `Message` struct) and receive values with `recvlen()`.

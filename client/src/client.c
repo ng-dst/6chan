@@ -111,8 +111,7 @@ void startAllServices(ADDRINFOA *fullcli, SOCKET sock) {
      *      - cs_rcv   - lock for recv()
      *
      *  Launch service threads:
-     *      - syncService():   sends /sync in background. uses cs_msg lock
-     *      - recvService():   receives /sync responses, uses cs_rcv lock
+     *      - syncService():   sends /sync in background and receives messages until \0\0. uses cs_msg and cs_rcv locks
      *      - sendService():   parses user input, sends messages to server
      *          * File download:
      *              uses cs_msg and cs_rcv locks, calls clientDownloadFile()
@@ -122,7 +121,7 @@ void startAllServices(ADDRINFOA *fullcli, SOCKET sock) {
      *  Wait for event ev_stop_client (is set once connection is closed)
      */
     DWORD dwt;
-    HANDLE controllers[3] = {INVALID_HANDLE_VALUE, INVALID_HANDLE_VALUE, INVALID_HANDLE_VALUE};
+    HANDLE controllers[2] = {INVALID_HANDLE_VALUE, INVALID_HANDLE_VALUE};
 
     InitializeCriticalSection(&cs_msg);
     InitializeCriticalSection(&cs_rcv);
@@ -131,8 +130,7 @@ void startAllServices(ADDRINFOA *fullcli, SOCKET sock) {
 
     controllers[0] = CreateThread(NULL, 0, (LPVOID) syncService, (LPVOID) sock, 0, &dwt);
     controllers[1] = CreateThread(NULL, 0, (LPVOID) sendService, (LPVOID) sock, 0, &dwt);
-    controllers[2] = CreateThread(NULL, 0, (LPVOID) recvService, (LPVOID) sock, 0, &dwt);
-    for (int i = 0; i < 3; i++)
+    for (int i = 0; i < 2; i++)
         if (controllers[i] == INVALID_HANDLE_VALUE)
             SetEvent(ev_stop_client);
 
@@ -146,9 +144,9 @@ void startAllServices(ADDRINFOA *fullcli, SOCKET sock) {
 #endif
     cv_stop = TRUE;
     closeClient(fullcli, sock);
-    WaitForMultipleObjects(3, controllers, TRUE, INFINITE);
+    WaitForMultipleObjects(2, controllers, TRUE, INFINITE);
 
-    for (int i = 0; i < 3; i++)
+    for (int i = 0; i < 2; i++)
         if (controllers != INVALID_HANDLE_VALUE)
             CloseHandle(controllers[i]);
 #ifdef DEBUG
@@ -176,12 +174,18 @@ void syncService(SOCKET sock) {
 
         res = send(sock, buf, strlen(buf)+1, 0); // with trailing \0
         if (res == SOCKET_ERROR) {
-            printf("Sync connection reset.\r\n");
+            printf("Connection reset.\r\n");
             SetEvent(ev_stop_client);
             cv_stop = TRUE;
         }
         LeaveCriticalSection(&cs_msg);
-
+#ifdef DEBUG
+        fprintf(stderr, "[syncService] Sync request sent, last_msg_id=%d\r\n", last_msg_id);
+#endif
+        recvMessages(sock);
+#ifdef DEBUG
+        fprintf(stderr, "[syncService] Messages received.\r\n");
+#endif
         Sleep(POLL_INTERVAL_MS);
     }
 }
@@ -259,49 +263,55 @@ void sendService(SOCKET sock) {
     }
 }
 
-void recvService(SOCKET sock) {
+void recvMessages(SOCKET sock) {
     /**
-     * @brief Background service: receive /sync response from server
+     * @brief syncService's subroutine: receive /sync response from server
      * @details
      *  Uses cs_rcv lock, receives messages from server and prints in terminal.
      */
 
     int res;
     int msg_id, user_id;
-    char *buf, *tmp;
+    char *buf = NULL, *tmp;
 
-    // Monitor server's responses and print them
+    // Monitor server's responses and print them, stop on \0\0, i.e. empty message
     while (!cv_stop) {
         EnterCriticalSection(&cs_rcv);
         res = recvuntil('\0', &buf, sock);
         LeaveCriticalSection(&cs_rcv);
 
+        // Received only \0 (which means \0 twice in a row)
+        if (res == 1 && !buf[0]) { if (buf) free(buf); return; }
+
 #ifdef USE_COLOR
         setColor(DEFAULT_COLOR);
 #endif
 
-        if (cv_stop) break;
+        if (cv_stop) return;
+
         if (res == SOCKET_ERROR) {
             printf("Connection reset.\r\n");
             SetEvent(ev_stop_client);
             cv_stop = TRUE;
-            break;
+            if (buf) free(buf);
+            return;
         }
         if (res == 0) {
             printf("Disconnected from server.\r\n");
             SetEvent(ev_stop_client);
             cv_stop = TRUE;
-            break;
+            return;
         }
         if (buf[0] == '#') {
             // Matches message form, update last message id
             msg_id = atoi(&buf[1]);
 #ifdef DEBUG
-            fprintf(stderr, "Got msg id=%lu\r\n", msg_id);
+            fprintf(stderr, "[recvMessages] Got msg_id=%d, last_msg_id=%d\r\n", msg_id, last_msg_id);
 #endif
             if (msg_id > last_msg_id) last_msg_id = msg_id;
+
 #ifdef USE_COLOR
-            // search for sender id
+            // search for sender id:  #3 [hh:mm] Anonim #id: ...
             tmp = strchr(&buf[1], '#');
             if (tmp != NULL) {
                 user_id = atoi(tmp+1);
@@ -317,8 +327,12 @@ void recvService(SOCKET sock) {
             }
             else setColor(DEFAULT_COLOR);
 #endif
+
         }
         printf("%s\r\n", buf);
+        free(buf);
+        buf = NULL;
+
 #ifdef USE_COLOR
         setColor(my_id);
 #endif

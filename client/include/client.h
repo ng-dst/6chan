@@ -11,6 +11,6 @@ void startAllServices(ADDRINFOA *fullcli, SOCKET sock);
 
 void syncService(SOCKET sock);
 void sendService(SOCKET sock);
-void recvService(SOCKET sock);
+void recvMessages(SOCKET sock);
 
 #endif //LAB6_CLIENT_H

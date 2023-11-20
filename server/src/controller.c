@@ -82,7 +82,7 @@ void startAllControllers(ADDRINFOA *fullserv, SOCKET sock) {
     InitializeCriticalSection(&cs_mh);
     cv_stop = FALSE;
 
-    controllers[0] = CreateThread(NULL, 0, (LPVOID ) clientMgmtController, (LPVOID) sock, NULL, &dwt);
+    controllers[0] = CreateThread(NULL, 0, (LPVOID ) clientMgmtController, (LPVOID) sock, 0, &dwt);
     if (controllers[0] == INVALID_HANDLE_VALUE) {
         closeServer(fullserv, sock);
         DeleteCriticalSection(&cs_mh);
@@ -119,6 +119,7 @@ void closeServer(ADDRINFOA *fullserv, SOCKET sock) {
         if (c->sock != INVALID_SOCKET) {
             shutdown(c->sock, SD_BOTH);
             closesocket(c->sock);
+            fprintf(stderr, "[closeServer] Disconnected client #%lu\r\n", c->id);
         }
     }
 
@@ -213,12 +214,12 @@ void clientMgmtController(SOCKET sock) {
 
 
 #define disconnectClient() \
-    do { \
+    if (c->sock != INVALID_SOCKET) { \
         shutdown(c->sock, SD_BOTH); \
         closesocket(c->sock);       \
         c->sock = INVALID_SOCKET;   \
         return;                     \
-    } while(0)
+    }
 
 
 void messageController(Client *c) {
@@ -260,7 +261,7 @@ void messageController(Client *c) {
         // Process message
         switch (msg->msg_type) {
 
-            // Sync: send new messages (if any) to client
+            // Sync: send new messages (if any) to client, end with \0\0
             // msg_id = ID of client's last stored message
             case MSG_TYPE_SYNC:
                 fprintf(stderr, "[msgCtrl | Thread %lu] Sync request from #%lu, last msg %d\r\n", GetCurrentThreadId(), msg->src_id, (int) msg->msg_id);
@@ -304,6 +305,7 @@ void messageController(Client *c) {
                         free(msgbuf.buf);
                     } else LeaveCriticalSection(&cs_mh);
                 }
+                send(c->sock, "\0", 1, 0);
 
                 free(msg);
                 break;
