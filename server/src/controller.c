@@ -10,7 +10,7 @@
 #define USER_ID_SYSTEM 0
 #define NO_MESSAGES (-1)
 
-#define MAX_USERS 255
+#define MAX_USERS 65536
 
 CRITICAL_SECTION cs_mh;
 DWORD msg_id_counter;
@@ -143,8 +143,11 @@ void clientMgmtController(SOCKET sock) {
     Client *c = NULL;
     Message* announce = NULL;
     SOCKET c_sock = INVALID_SOCKET;
+    HANDLE* tmp;
 
-    HANDLE msgThreads[MAX_USERS];
+    int msg_threads_size = MAX_USERS;
+    HANDLE *msgThreads = calloc(MAX_USERS, sizeof(HANDLE));
+    if (!msgThreads) return;
 
     int clients_counter = 1;
     msg_id_counter = 1;
@@ -178,6 +181,7 @@ void clientMgmtController(SOCKET sock) {
         if (!announce->buf) { free(announce); break; }
         sprintf(announce->buf, "New anon joined. Welcome, Anonim #%lu", c->id);
         announce->msg_len = strlen(announce->buf);
+        GetLocalTime(&announce->timestamp);
 
         EnterCriticalSection(&cs_mh);
         announce->msg_id = msg_id_counter++;
@@ -190,16 +194,22 @@ void clientMgmtController(SOCKET sock) {
         // Create messageController() thread for client
         msgThreads[clients_counter] = CreateThread(NULL, 0, (LPVOID) messageController, (LPVOID) c, 0, &dwt);
         if (msgThreads[clients_counter] == INVALID_HANDLE_VALUE) {
-            fprintf(stderr, "[clMgmtCtrl] Failed to create thread!\r\n");
+            fprintf(stderr, "[clMgmtCtrl] Failed to create thread for client #%lu! Closing connection.\r\n", c->id);
+            send(c->sock, "Sorry, something went wrong.\r\n\0", 32, 0);
+            shutdown(c->sock, SD_BOTH);
+            closesocket(c->sock);
+            c->sock = INVALID_SOCKET;
             break;
         }
 
-        // Disable users registration if max users count reached
+        // Extend msgThreads buffer if needed
         clients_counter++;
-        if (clients_counter == MAX_USERS) {
-            fprintf(stderr, "[clMgmtCtrl] Max users count reached (%d). New user registration is disabled.\r\n", MAX_USERS);
-            printf("Max users count reached (%d). New user registration is disabled.\r\n", MAX_USERS);
-            break;
+        if (clients_counter == msg_threads_size) {
+            fprintf(stderr, "[clMgmtCtrl] Max users count reached (%d). Reallocating.\r\n", msg_threads_size);
+            tmp = realloc(msgThreads, msg_threads_size + MAX_USERS);
+            if (!tmp) break;
+            msgThreads = tmp;
+            msg_threads_size += MAX_USERS;
         }
     }
     fprintf(stderr, "[clMgmtCtrl] Registration loop stopped, waiting for threads...\r\n");
@@ -209,17 +219,20 @@ void clientMgmtController(SOCKET sock) {
         if (msgThreads[j] != INVALID_HANDLE_VALUE)
             CloseHandle(msgThreads[j]);
 
+    free(msgThreads);
     fprintf(stderr, "[clMgmtCtrl] Stopped all threads, quitting...\r\n");
 }
 
 
-#define disconnectClient() \
-    if (c->sock != INVALID_SOCKET) { \
-        shutdown(c->sock, SD_BOTH); \
-        closesocket(c->sock);       \
-        c->sock = INVALID_SOCKET;   \
-        return;                     \
-    }
+#define disconnectClient()              \
+do {                                    \
+    if (c->sock != INVALID_SOCKET) {    \
+        shutdown(c->sock, SD_BOTH);     \
+        closesocket(c->sock);           \
+        c->sock = INVALID_SOCKET;       \
+    }                                   \
+    return;                             \
+} while(0)
 
 
 void messageController(Client *c) {
@@ -268,7 +281,7 @@ void messageController(Client *c) {
 
                 if ((int) msg->msg_id == NO_MESSAGES) {
                     // New client, send welcome message and skip message search
-                    sprintf(welcome_msg, "#0 | Welcome back, Anonim #%lu", msg->src_id);
+                    sprintf(welcome_msg, "#0  Welcome back, Anonim #%lu", msg->src_id);
                     send(c->sock, welcome_msg, strlen(welcome_msg)+1, 0);
                     i = msgs->head;
                 }
@@ -292,6 +305,7 @@ void messageController(Client *c) {
                     msgbuf.src_id = orig_msg->src_id;
                     msgbuf.msg_type = orig_msg->msg_type;
                     msgbuf.msg_len = orig_msg->msg_len;
+                    msgbuf.timestamp = orig_msg->timestamp;
                     memcpy(msgbuf.file_name, orig_msg->file_name, FILE_NAME_LEN);
                     msgbuf.buf = calloc(msgbuf.msg_len+1, sizeof(char));
                     if (msgbuf.buf != NULL) {

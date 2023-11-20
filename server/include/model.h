@@ -9,25 +9,27 @@
 #define MSG_TYPE_SYNC 0
 #define MSG_TYPE_MSG 1
 #define MSG_TYPE_FILE 2
-#define MSG_TYPE_QUIT 3
-#define MSG_TYPE_LOADFILE 4
+#define MSG_TYPE_LOADFILE 3
+
 
 typedef struct Client {
-    SOCKET sock;
-    DWORD id;
-    char ip[16];
-    WORD port;
+    SOCKET sock;                        // Client socket
+    DWORD id;                           // Client #id
+    char ip[16];                        // IP in decimal notation
+    WORD port;                          // Port number
 } Client;
 
-// messages and files are stored in RAM
+
 typedef struct Message {
-    DWORD msg_id;
-    DWORD src_id;
-    DWORD msg_len;
-    BYTE msg_type;
-    char file_name[FILE_NAME_LEN];
-    char *buf;
+    DWORD msg_id;                       // Message #id
+    DWORD src_id;                       // Sender #id
+    DWORD msg_len;                      // Length of buffer
+    BYTE msg_type;                      // Type of message (in #define)
+    char file_name[FILE_NAME_LEN];      // File name (if message is a file)
+    char *buf;                          // Message buffer
+    SYSTEMTIME timestamp;               // Time stamp of message
 } Message;
+
 
 List* getMessageHistory();
 List* initMessageHistory();

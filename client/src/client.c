@@ -211,7 +211,9 @@ void sendService(SOCKET sock) {
 
     while (!cv_stop) {
         memset(buf, 0, INPUT_BUF_LEN);
-
+#ifdef USE_COLOR
+        setColor(my_id);
+#endif
         scanf("%" STR(INPUT_BUF_LEN) "[^\n]", buf);
         if (buf[INPUT_BUF_LEN - 1] != '\0') {
             printf("Message is too long. Consider sending as a file.\n");
@@ -220,6 +222,9 @@ void sendService(SOCKET sock) {
         }
         scanf("%*c");
 
+#ifdef USE_COLOR
+        setColor(DEFAULT_COLOR);
+#endif
         if (cv_stop) break;
         if (strlen(buf) <= 0) continue;
 
@@ -245,8 +250,8 @@ void sendService(SOCKET sock) {
             clientUploadFile(sock, &cs_msg);
         }
 
-        // Some other command (except /sync <id>)
-        else if (buf[0] == '/' && strncmp(CMD_SYNC, buf, 5) != 0)
+        // Some other command (now manual /sync is disabled)
+        else if (buf[0] == '/' != 0)
             printf("Available commands:\r\n/file - upload file\r\n/dl <id> - download file or message by #id\r\n/q - quit");
 
         // Not a command, send message

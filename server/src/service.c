@@ -2,7 +2,7 @@
 #include "../include/service.h"
 #include "../../utils/include/recvbuf.h"
 
-#define MSG_HEADER_LEN 80
+#define MSG_HEADER_LEN 128
 #define INPUT_BUF_LEN 1024
 
 #define FILE_HEADER "\0\0\0\xff"
@@ -23,44 +23,52 @@ void getIpPort(SOCKET sock, char *ip, WORD *port) {
     *port = ntohs(addr_inet->sin_port);
 }
 
+
+#define returnOnError() \
+    if (res < 1) { \
+        fprintf(stderr, "[sendToClient] Error sending to client %lu\r\n", c->id); \
+        return FALSE; \
+    }
+
+
 WINBOOL sendMessageToClient(Client* c, Message* msg) {
+    /**
+     * @brief Send message in human-readable format to client, ending with \0
+     */
     int res;
     if (!c || !msg || !msg->buf) return FALSE;
 
     fprintf(stderr, "[sendMsgToClient] Service invoked for msg id=%lu\r\n", msg->msg_id);
 
+    WORD hh = msg->timestamp.wHour;
+    WORD mm = msg->timestamp.wMinute;
+
     char msg_header[MSG_HEADER_LEN];
     if (msg->src_id != 0)
-        sprintf(msg_header, "#%lu | Anonim #%lu : ", msg->msg_id, msg->src_id);
+        sprintf(msg_header, "#%lu [%02hu:%02hu]  Anonim #%lu: ", msg->msg_id, hh, mm, msg->src_id);
     else
-        sprintf(msg_header, "#%lu | ", msg->msg_id);
+        sprintf(msg_header, "#%lu [%02hu:%02hu]  ", msg->msg_id, hh, mm);
 
+    // Send message meta info: '#id [hh:mm]  Anonim #id : '
     res = send(c->sock, msg_header, strlen(msg_header), 0); // no trailing \0 yet
-    if (res == SOCKET_ERROR)
-        fprintf(stderr, "[sendMsgToClient | Thread %lu] Error sending message header to client #%lu\r\n", GetCurrentThreadId(), c->id);
+    returnOnError();
 
     if (msg->msg_type == MSG_TYPE_MSG) {
+        // Send actual message with \0
         res = send(c->sock, msg->buf, msg->msg_len+1, 0); // with trailing \0
-        if (res == SOCKET_ERROR)
-            fprintf(stderr, "[sendMsgToClient | Thread %lu] Error sending message text to client #%lu\r\n", GetCurrentThreadId(), c->id);
+        returnOnError();
     }
     else if (msg->msg_type == MSG_TYPE_FILE) {
+        // Send file details (see sprintf below)
         sprintf(msg_header, "File '%s' (%lu bytes). Type '/dl %lu' to download", msg->file_name, msg->msg_len, msg->msg_id);
         res = send(c->sock, msg_header, strlen(msg_header)+1, 0);
-        if (res == SOCKET_ERROR)
-            fprintf(stderr, "[sendMsgToClient | Thread %lu] Error sending message text to client #%lu\r\n", GetCurrentThreadId(), c->id);
+        returnOnError();
     }
     else return FALSE;
 
     return TRUE;
 }
 
-
-#define returnOnError() \
-    if (res == SOCKET_ERROR) { \
-        fprintf(stderr, "[sendFileToClient | Thread %lu] Error sending to client %lu\r\n", GetCurrentThreadId(), c->id); \
-        return FALSE; \
-    }
 
 WINBOOL sendFileToClient(Client* c, Message* msg) {
     /**
@@ -119,6 +127,8 @@ Message* parseMsgFromClient(const char* buf, int len, SOCKET sock) {
 
     Message* msg = calloc(1, sizeof(Message));
     if (!msg) return NULL;
+
+    GetLocalTime(&msg->timestamp);
 
     if (len > 1) {
 
