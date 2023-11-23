@@ -1,9 +1,11 @@
-# Lab 6: socket-based messaging board
+# Lab 6: messaging board on sockets / named pipes
 
 ## 6chan - Welcome back. Again.
 
 6chan is an anonymous messaging board (like a group chat / forum) with file sharing. \
 To ensure users' privacy, all user and message data is processed in RAM, so it's all destroyed once server is shut down.
+
+Supports sockets as well as named pipes.
 
 ## Usage
 
@@ -13,16 +15,18 @@ Run `server`:
 * `server.exe` 
 * `server.exe [port]` 
 * `server.exe [host] [port]`
+* `server.exe [pipe]` (for _pipe_ version)
 
-Default is `127.0.0.1:5000` \
+Default is `127.0.0.1:5000` (for sockets), `\\.\pipe\6chan` (for pipes) \
 Server writes logs to _stderr_, which can be piped to file: `server.exe 2> server.log`
 
 Run `client`:
 * `client.exe`
 * `client.exe [port]`
 * `client.exe [host] [port]`
+* `client.exe [pipe]` (for _pipe_ version)
 
-Client connects to _host:port_ and establishes session. On connect, message history syncs automatically. 
+Client connects to _host:port_ or _pipe_ and establishes session. On connect, message history syncs automatically. 
 
 ### Available commands
 
@@ -35,12 +39,13 @@ Client connects to _host:port_ and establishes session. On connect, message hist
 
 * `-D DEBUG` (`./CMakeLists.txt`) to build debug version: extended logging, slower polling rates
 * `-D USE_COLOR` (`./client/CMakeLists.txt`) to colorize console text _(recommended)_
+* `-D USE_PIPES` (`./CMakeLists.txt`) to build _pipe_ version. Blocking mode (`PIPE_WAIT`) is used.
 
 ## Server architecture
 
 List of server controllers:
 * `startServer()`
-  - Initialize _socket(), bind(), listen()_
+  - Initialize _socket(), bind(), listen()_  (for _socket_ version)
   - Initialize global _Client List_ and _Message History_
   - Call `startAllControllers()`
   - Clean up global lists
@@ -55,9 +60,9 @@ List of server controllers:
 
 
 * `clientMgmtController()`
-  - Call _accept()_ in loop
-  - For each client socket, create `messageController()` thread
-  - If socket is closed, wait for all controller threads
+  - Call _accept()_ in loop (for _socket_ version), _CreateFile()_ and _ConnectNamedPipe()_ (for _pipe_ version)
+  - For each client socket / pipe, create `messageController()` thread
+  - If socket / pipe is closed, wait for all controller threads
   
 
 * `messageController()`
@@ -73,7 +78,7 @@ List of server controllers:
 List of client routines and services:
 
 * `runClient()`
-  - Initialize _socket(), connect()_
+  - Initialize _socket(), connect()_ (for _socket_ version), _Create
   - Call `startAllServices()`
 
 
@@ -111,7 +116,9 @@ Both client and server use the following _recv()_ wrappers:
 * `recvuntil(char delim)`: Allocate buffer and receive until `delim` character encounters
 * `recvlen(int len)`:  Allocate buffer and receive exactly `len` bytes
 
-Uses thread-local (for server) or shared (for client) static buffer.
+They work with named pipes as well, provided `USE_PIPES` flag is set.
+
+They use thread-local (for server) or shared (for client) static buffer.
 Buffer state persists between calls.
 
 `buf` = persistent buffer, shared by _recvuntil()_ and _recvlen()_\
