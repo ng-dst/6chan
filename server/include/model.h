@@ -13,9 +13,13 @@
 
 
 typedef struct Client {
+#ifdef USE_PIPES
+    HANDLE sock;
+#else
     SOCKET sock;                        // Client socket
-    DWORD id;                           // Client #id
     char ip[16];                        // IP in decimal notation
+#endif
+    DWORD id;                           // Client #id
     WORD port;                          // Port number
 } Client;
 

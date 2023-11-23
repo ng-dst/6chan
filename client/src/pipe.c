@@ -1,8 +1,7 @@
 #include <stdio.h>
 #include <winsock2.h>
 #include <windows.h>
-#include <ws2tcpip.h>
-#include "../include/client.h"
+#include "../include/pipe.h"
 #include "../include/fileshare.h"
 #include "../include/color.h"
 #include "../../utils/include/recvbuf.h"
@@ -20,6 +19,8 @@ DWORD my_id = 0;
 #define POLL_INTERVAL_MS 300
 #endif
 
+#define PIPE_TIMEOUT_MS 10000
+
 #define SYNC_BUF_LEN 32
 #define INPUT_BUF_LEN 1024
 
@@ -29,50 +30,39 @@ DWORD my_id = 0;
 #define NO_MESSAGES (-1)
 
 
-#define disconnectOnError() \
-    if (err != ERROR_SUCCESS) { \
-        printLastWSAError(); \
-        closeClient(fullcli, sock); \
-        return EXIT_FAILURE; \
-    }
-
-WINBOOL runClient(const char *ip, const char *port) {
+WINBOOL runPipeClient(const char *pipe) {
     /**
-     * @brief initialize client: wsaStartup(), getaddrinfo(), socket(), connect()
-     * transfer control to startAllServices()
+     * @brief Initialize pipe client, transfer control to startAllServices()
      */
-    int err;
-    WSADATA wsa = {0};
-    SOCKET sock = INVALID_SOCKET;
-    ADDRINFOA client = {0};
-    ADDRINFOA *fullcli = NULL;
+    HANDLE hPipe = INVALID_HANDLE_VALUE;
 
-    err = WSAStartup(0x0202, &wsa);
-#ifdef DEBUG
-    fprintf(stderr, "[runCli] WSAStartup: code %d\n", err);
-#endif
-    disconnectOnError();
+    while (TRUE) {
+        hPipe = CreateFile(
+                pipe,   // pipe name
+                GENERIC_READ | GENERIC_WRITE,
+                0,              // no sharing
+                NULL,           // default security attributes
+                OPEN_EXISTING,  // opens existing pipe
+                0,              // default attributes
+                NULL);          // no template file
 
-    client.ai_family = AF_INET;
-    client.ai_socktype = SOCK_STREAM;
-    client.ai_protocol = IPPROTO_TCP;
+        // Break if the pipe handle is valid.
+        if (hPipe != INVALID_HANDLE_VALUE)
+            break;
 
-    err = getaddrinfo(ip, port, &client, &fullcli);
-#ifdef DEBUG
-    fprintf(stderr, "[runCli] GetAddrInfo: code %d\n", err);
-#endif
-    disconnectOnError();
+        // Exit if an error other than ERROR_PIPE_BUSY occurs.
+        if (GetLastError() != ERROR_PIPE_BUSY)
+        {
+            fprintf(stderr, "Could not open pipe. Error code %lu\n", GetLastError());
+            return EXIT_FAILURE;
+        }
 
-    sock = socket(fullcli->ai_family, fullcli->ai_socktype, fullcli->ai_protocol);
-    if (sock == INVALID_SOCKET) err = SOCKET_ERROR;
-    disconnectOnError();
-#ifdef DEBUG
-    fprintf(stderr, "[runCli] Socket created successfully\n");
-#endif
-
-    printf("Connecting to %s:%s...\r\n", ip, port);
-    err = connect(sock, fullcli->ai_addr, fullcli->ai_addrlen);
-    disconnectOnError();
+        // All pipe instances are busy, so wait for PIPE_TIMEOUT
+        if (!WaitNamedPipe(pipe, PIPE_TIMEOUT_MS)) {
+            printf("Could not connect to pipe %s\r\n", pipe);
+            return EXIT_FAILURE;
+        }
+    }
 
 #ifdef USE_COLOR
     hConsole = GetStdHandle(STD_OUTPUT_HANDLE);
@@ -80,28 +70,24 @@ WINBOOL runClient(const char *ip, const char *port) {
     saved_attr = consoleInfo.wAttributes;
 #endif
 
-    startAllServices(fullcli, sock);
+    startAllServices(hPipe);
 
-    return 0;
+    return EXIT_SUCCESS;
 }
 
-void closeClient(ADDRINFOA *fullcli, SOCKET sock)  {
+void closeClient(HANDLE sock)  {
     /**
-     * @brief Close socket and free address info
+     * @brief Close pipe to shut down client
      */
 #ifdef DEBUG
-    fprintf(stderr, "[closeClient] Closing client socket\r\n");
+    fprintf(stderr, "[closeClient] Closing client pipe\r\n");
 #endif
-    if (fullcli)
-        freeaddrinfo(fullcli);
-
-    if (sock != INVALID_SOCKET) {
-        shutdown(sock, SD_BOTH);
-        closesocket(sock);
+    if (sock != INVALID_HANDLE_VALUE) {
+        CloseHandle(sock);
     }
 }
 
-void startAllServices(ADDRINFOA *fullcli, SOCKET sock) {
+void startAllServices(HANDLE sock) {
     /**
      * @brief Launch threads for services: sendService(), syncService(), recvService()
      * @details
@@ -120,6 +106,7 @@ void startAllServices(ADDRINFOA *fullcli, SOCKET sock) {
      *
      *  Wait for event ev_stop_client (is set once connection is closed)
      */
+
     DWORD dwt;
     HANDLE controllers[2] = {INVALID_HANDLE_VALUE, INVALID_HANDLE_VALUE};
 
@@ -143,7 +130,7 @@ void startAllServices(ADDRINFOA *fullcli, SOCKET sock) {
     fprintf(stderr, "[startAllSrv] Stopping client...\n");
 #endif
     cv_stop = TRUE;
-    closeClient(fullcli, sock);
+    closeClient(sock);
     WaitForMultipleObjects(2, controllers, TRUE, INFINITE);
 
     for (int i = 0; i < 2; i++)
@@ -156,12 +143,13 @@ void startAllServices(ADDRINFOA *fullcli, SOCKET sock) {
     DeleteCriticalSection(&cs_rcv);
 }
 
-void syncService(SOCKET sock) {
+void syncService(HANDLE sock) {
     /**
      * @brief Background service: Send /sync within a certain time interval
      * @details
      *   Sends /sync command in a certain time interval. Uses cs_msg, i.e. lock for send()
      */
+
     char buf[SYNC_BUF_LEN];
     int res;
     last_msg_id = NO_MESSAGES;
@@ -172,7 +160,7 @@ void syncService(SOCKET sock) {
         EnterCriticalSection(&cs_msg);
         sprintf(buf, "/sync %d", last_msg_id);
 
-        res = send(sock, buf, strlen(buf)+1, 0); // with trailing \0
+        res = sendpipe(sock, buf, strlen(buf)+1, 0); // with trailing \0
         if (res == SOCKET_ERROR) {
 #ifdef USE_COLOR
             setColor(DEFAULT_COLOR);
@@ -198,7 +186,7 @@ void syncService(SOCKET sock) {
 #define CMD_FILE "/file"
 #define CMD_SYNC "/sync"
 
-void sendService(SOCKET sock) {
+void sendService(HANDLE sock) {
     /**
      * @brief Foreground activity: process user input and send messages to server
      * @details
@@ -208,6 +196,7 @@ void sendService(SOCKET sock) {
      *      * File upload:
      *          uses cs_msg lock, calls clientUploadFile()
      */
+
     char buf[INPUT_BUF_LEN] = {0};
     int res;
     DWORD file_id;
@@ -239,7 +228,7 @@ void sendService(SOCKET sock) {
             break;
         }
 
-        // Download file
+            // Download file
         else if (!strncmp(CMD_DL, buf, 3)) {
             if (strlen(buf) < 5 || !(file_id = atol(&buf[4]))) {
                 printf("Specify file id to download.\r\n");
@@ -248,7 +237,7 @@ void sendService(SOCKET sock) {
             clientDownloadFile(sock, file_id, &cs_msg, &cs_rcv);
         }
 
-        // Upload file
+            // Upload file
         else if (!strcmp(CMD_FILE, buf)) {
 #ifdef USE_COLOR
             setColor(DEFAULT_COLOR);
@@ -256,14 +245,14 @@ void sendService(SOCKET sock) {
             clientUploadFile(sock, &cs_msg);
         }
 
-        // Some other command (now manual /sync is disabled)
+            // Some other command (now manual /sync is disabled)
         else if (buf[0] == '/' != 0)
             printf("Available commands:\r\n/file - upload file\r\n/dl <id> - download file or message by #id\r\n/q - quit\r\n");
 
-        // Not a command, send message
+            // Not a command, send message
         else {
             EnterCriticalSection(&cs_msg);
-            res = send(sock, buf, strlen(buf)+1, 0);
+            res = sendpipe(sock, buf, strlen(buf)+1, 0);
             if (res == SOCKET_ERROR) {
                 printf("Send connection reset.\r\n");
                 SetEvent(ev_stop_client);

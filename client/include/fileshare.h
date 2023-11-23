@@ -3,6 +3,10 @@
 
 #include <winsock2.h>
 
+#ifdef USE_PIPES
+#define SOCKET HANDLE
+#endif
+
 void clientDownloadFile(SOCKET sock, DWORD file_id, CRITICAL_SECTION *cs_send, CRITICAL_SECTION *cs_recv);
 void clientUploadFile(SOCKET sock, CRITICAL_SECTION *cs_send);
 

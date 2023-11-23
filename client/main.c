@@ -1,6 +1,14 @@
-#include "include/client.h"
+#ifdef USE_PIPES
 
+#include "include/pipe.h"
+#define DEFAULT_HOST "\\\\.\\pipe\\6chan"
+
+#else
+
+#include "include/client.h"
 #define DEFAULT_HOST "127.0.0.1"
+
+#endif
 #define DEFAULT_PORT "5000"
 
 int main(int argc, char** argv) {
@@ -25,5 +33,10 @@ int main(int argc, char** argv) {
         host = argv[1];
         port = argv[2];
     }
-    return runClient(host, port);
+    return
+#ifdef USE_PIPES
+            runPipeClient(host);
+#else
+            runClient(host, port);
+#endif
 }

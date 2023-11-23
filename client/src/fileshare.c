@@ -7,6 +7,10 @@
 #define CMD_BUF_LEN 32
 #define FILE_HEADER '\xff'
 
+#ifdef USE_PIPES
+#define send sendpipe
+#endif
+
 
 WINBOOL clientSelectSavePath(char* buf) {
     /**
@@ -20,7 +24,7 @@ WINBOOL clientSelectSavePath(char* buf) {
     ofn.lpstrFilter = "Kotiki (*.*)\0*.*\0";
     ofn.lpstrFile = buf;
     ofn.nMaxFile = MAX_PATH;
-    ofn.Flags = OFN_EXPLORER | OFN_HIDEREADONLY;
+    ofn.Flags = OFN_EXPLORER | OFN_HIDEREADONLY | OFN_PATHMUSTEXIST;
     ofn.lpstrDefExt = "txt";
 
     return GetSaveFileNameA(&ofn);
@@ -38,7 +42,7 @@ WINBOOL clientSelectOpenPath(char* buf) {
     ofn.lpstrFilter = "Kotiki (*.*)\0*.*\0";
     ofn.lpstrFile = buf;
     ofn.nMaxFile = MAX_PATH;
-    ofn.Flags = OFN_EXPLORER | OFN_FILEMUSTEXIST | OFN_HIDEREADONLY;
+    ofn.Flags = OFN_EXPLORER | OFN_PATHMUSTEXIST | OFN_FILEMUSTEXIST;
     ofn.lpstrDefExt = "txt";
 
     return GetOpenFileNameA(&ofn);
@@ -70,7 +74,7 @@ void clientDownloadFile(SOCKET sock, DWORD file_id, CRITICAL_SECTION *cs_send, C
     sprintf(cmd_buf, "/dl %lu", file_id);
 
     EnterCriticalSection(cs_send);
-    res = send(sock, cmd_buf, strlen(cmd_buf)+1, 0);
+    send(sock, cmd_buf, strlen(cmd_buf)+1, 0);
 
     EnterCriticalSection(cs_recv);
 
@@ -188,13 +192,15 @@ void clientUploadFile(SOCKET sock, CRITICAL_SECTION *cs_send) {
 
     // Now file has been read, sending
     EnterCriticalSection(cs_send);
-    int res = send(sock, buf, total_size, 0);
+    send(sock, buf, total_size, 0);
     LeaveCriticalSection(cs_send);
 
-    if (res == SOCKET_ERROR) {
-        printf("Could not send this file. Network error.\r\n");
-        printLastWSAError();
-    }
+    int res = recvuntil('\0', &tmp, sock);
+    if (res <= 0) printf("This file is so big!\r\n");
+    // Print response
+    else printf("%s\r\n", tmp);
+
+    free(tmp);
     free(buf);
 }
 

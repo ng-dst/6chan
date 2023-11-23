@@ -11,6 +11,11 @@ static int end = 0;
 static int size = BASE_BUF_LEN;
 #endif
 
+#ifdef USE_PIPES
+#define SOCKET HANDLE
+#endif
+
+
 int recvuntil(char delim, char **ptr, SOCKET sock) {
     /**
      * @brief Allocate buffer and receive until `delimiter` char
@@ -48,6 +53,7 @@ int recvuntil(char delim, char **ptr, SOCKET sock) {
      */
     int n, pos, new_size;
     char *tmp, *ret;
+    BOOL fSuccess;
 
     if (!_buf) {
         _buf = calloc(1, BASE_BUF_LEN);
@@ -86,7 +92,12 @@ int recvuntil(char delim, char **ptr, SOCKET sock) {
         }
 
         // No delimiter, continue receiving
+#ifdef USE_PIPES
+        fSuccess = ReadFile(sock, _buf+end, size-end, (LPDWORD) &n, NULL);
+        if (!fSuccess) n = SOCKET_ERROR;
+#else
         n = recv(sock, _buf+end, size-end, 0);
+#endif
         if (n == SOCKET_ERROR || n == 0) {
             if (_buf) free(_buf);
             _buf = NULL;
@@ -150,6 +161,7 @@ int recvlen(DWORD len, char **ptr, SOCKET sock) {
      */
     int n, new_size;
     char *ret, *tmp;
+    BOOL fSuccess;
 
     if (len > MAX_BUF_LEN) {
         // too large message. Deny.
@@ -203,7 +215,12 @@ int recvlen(DWORD len, char **ptr, SOCKET sock) {
         }
 
         // Not enough bytes received, continue
+#ifdef USE_PIPES
+        fSuccess = ReadFile(sock, _buf+end, size-end, (LPDWORD) &n, NULL);
+        if (!fSuccess) n = SOCKET_ERROR;
+#else
         n = recv(sock, _buf+end, size-end, 0);
+#endif
         if (n == SOCKET_ERROR || n == 0) {
             if (_buf) free(_buf);
             _buf = NULL;
@@ -212,3 +229,17 @@ int recvlen(DWORD len, char **ptr, SOCKET sock) {
         end += n;
     }
 }
+
+
+#ifdef USE_PIPES
+int sendpipe(HANDLE sock, const char* buf, DWORD len, DWORD flags) {
+    int n;
+    BOOL fSuccess = WriteFile(sock,
+                              buf,
+                              len,
+                              (LPDWORD) &n,
+                              NULL);
+    if (!fSuccess) n = SOCKET_ERROR;
+    return n;
+}
+#endif

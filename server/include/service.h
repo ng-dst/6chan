@@ -4,6 +4,9 @@
 #include <winsock2.h>
 #include "model.h"
 
+#ifdef USE_PIPES
+#define SOCKET HANDLE
+#endif
 
 void getIpPort(SOCKET sock, char *ip, WORD *port);
 

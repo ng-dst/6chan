@@ -11,6 +11,13 @@
 #define FILE_SIZE_MAX MAX_BUF_LEN
 
 
+#ifdef USE_PIPES
+#define send sendpipe
+#define SOCKET HANDLE
+#endif
+
+
+#ifndef USE_PIPES
 void getIpPort(SOCKET sock, char *ip, WORD *port) {
     /**
      * @brief Get IP and port by socket
@@ -22,6 +29,7 @@ void getIpPort(SOCKET sock, char *ip, WORD *port) {
     strncpy(ip, inet_ntoa(addr_inet->sin_addr), 16);
     *port = ntohs(addr_inet->sin_port);
 }
+#endif
 
 
 #define returnOnError() \
@@ -140,13 +148,15 @@ Message* parseMsgFromClient(const char* buf, int len, SOCKET sock) {
         }
 
         if (!strncmp(CMD_FILE, buf, 5)) {
-            // file format:   /file <name>%00<size><content>     (client "sends" /file, then chooses one in explorer)
+            // file format:   /file <name>%00<size><content>     (client types /file, then chooses one in explorer)
             msg->msg_type = MSG_TYPE_FILE;
             strncpy(msg->file_name, &buf[6], FILE_NAME_LEN-1);
             if (acceptFileFromClient(msg, sock) == SOCKET_ERROR) {
+                fprintf(stderr, "[parseMsg] Incoming file size is too big. Denying upload\r\n");
                 send(sock, "Wow, it's so big!", 18, 0);
                 return NULL;
             }
+            send(sock, "File uploaded", 14, 0);
             return msg;
         }
 

@@ -1,6 +1,14 @@
-#include "include/controller.h"
+#ifdef USE_PIPES
 
+#include "include/pipe.h"
+#define DEFAULT_HOST "\\\\.\\pipe\\6chan"
+
+#else
+
+#include "include/controller.h"
 #define DEFAULT_HOST "127.0.0.1"
+
+#endif
 #define DEFAULT_PORT "5000"
 
 int main(int argc, char** argv) {
@@ -10,7 +18,9 @@ int main(int argc, char** argv) {
      *      ./lab6 [port]
      *      ./lab6 [host] [port]
      *
-     *  default is 127.0.0.1:5000
+     *  default is
+     *      127.0.0.1:5000  (socket)
+     *      \.\pipe\6chan   (pipe)
      */
     char *host, *port;
     if (argc < 2) {
@@ -25,5 +35,10 @@ int main(int argc, char** argv) {
         host = argv[1];
         port = argv[2];
     }
-    return startServer(host, port);
+    return
+#ifdef USE_PIPES
+    startPipeServer(host);
+#else
+    startServer(host, port);
+#endif
 }

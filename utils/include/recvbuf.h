@@ -11,6 +11,11 @@
 #define MAX_BUF_LEN 104857600  /* 100 MB */
 #endif
 
+#ifdef USE_PIPES
+#define SOCKET HANDLE
+int sendpipe(SOCKET sock, const char* buf, DWORD len, DWORD flags);
+#endif
+
 int recvuntil(char delim, char **ptr, SOCKET sock);
 int recvlen(DWORD len, char **ptr, SOCKET sock);
 
