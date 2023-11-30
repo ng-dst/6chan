@@ -197,3 +197,11 @@ buf  ========-------------------------
 This lab uses `recvuntil('\0')` for messages and commands, which means data is received dynamically. Though it works fine, it's not the best approach, as we don't know message length beforehand, and message type is parsed from `/`-like commands.
 
 Better **implement your own _TV / TLV_ protocol** for messages (use some tags from `Message` struct) and receive values with `recvlen()`.
+
+And unicode... Technically should work but needs a bit of polishing. I'm too lazy for that &nbsp;ฅ ^•ﻌ•^ ฅ &nbsp;° 。
+
+     ˚∧＿∧  　+        —̳͟͞͞💗
+     ( •‿•)つ  —̳͟͞͞ 💗         —̳͟͞͞💗 +
+     (つ　<               —̳͟͞͞💗
+     ｜   _つ     +  —̳͟͞͞💗         —̳͟͞͞💗 ˚
+    `し´
